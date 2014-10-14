@@ -126,7 +126,7 @@ $issuesWithWork = $issuesWithWork | where {$_.Status -ne "Closed"}
 # Record the worklog depending on the 
 $totalCoeff = ($issuesWithWork | Measure-Object Sum -Sum).Sum
 ForEach ($issueWithWork in $issuesWithWork) {
-    $timeSpentInSec = $issueWithWork.Sum / $totalCoeff * 28800
+    $timeSpentInSec = $issueWithWork.Sum / $totalCoeff * $secondsPerDay
     
     Write-Host "Adding worklog on" $issueWithWork.Item "-" $timeSpentInSec "seconds" "-" $issueWithWork.Date
     $worklog = AddWorklogToJiraIssue $issueWithWork.Item $timeSpentInSec $issueWithWork.Date
@@ -134,8 +134,4 @@ ForEach ($issueWithWork in $issuesWithWork) {
 }
 
 
-# TO DO:
-# * Remove rounds and assign remaining time to ITHD-8454: causes to have a little less than 8 hours logged.
-#     - Use REST: http://jira.sophieparis.com/rest/timesheet-gadget/1.0/raw-timesheet.json?targetUser=fx&startDate=2014-10-13&endDate=2014-10-13
-# * Assign worlog to specific date! (group by date)
-# * Ability to do it on a date range.
+
