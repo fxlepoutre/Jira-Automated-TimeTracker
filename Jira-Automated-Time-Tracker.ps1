@@ -60,21 +60,46 @@ $dateEnd = (Get-Date $worklogDate.AddDays(1) -UFormat %s) - 1
 # Try login and read XML feed of activities..
 try {
     # Read XML feed of activities.
-    $uri = $Script:jiraURL+"/activity?streams=user+IS+fx&streams=update-date+BETWEEN+"+$dateStart+"000+"+$dateEnd+"999&maxResults=500"
+    $uri = $Script:jiraURL+"/activity?streams=user+IS+victor&streams=update-date+BETWEEN+"+$dateStart+"000+"+$dateEnd+"999&maxResults=500"
+    write-Host $uri
     [xml]$activityStream = Invoke-WebRequest -Uri $uri -Method Get -SessionVariable session -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -TimeoutSec 10
-} catch {
+} catch [Exception] {
     write-Host "Login error, check if login on Jira is possible."
+    write-Host $_.Exception|format-list -force
     Break
 }
 
 # Parse XML feed of activities and get interresting details.
 $activityEntries = @()
-ForEach ($entry in $activityStream.feed.entry) {
+ForEach ($entry in $activityStream.feed.entry) { 
+    # Initialize number of attachments
+    $nbfiles = 0
     
-    # Find issue related to activity entry
-    $issueKey = $entry.target.title.InnerText
+    # Find issue related to activity entry in target first
+    ForEach ($target in $entry.target) {
+    	if($target.'object-type'.innerText -eq "http://streams.atlassian.com/syndication/types/issue") {
+    		$issueKey = $entry.target.title.InnerText
+    		break
+    	}
+    }
+    
+    # Find issue related to activity entry in object if no target found
     if((!$issueKey) -or ($issueKey.Trim() -eq "")) {
-        $issueKey = $entry.object.title.innerText
+	    ForEach ($object in $entry.object) {
+	    	if($object.'object-type'.innerText -eq "http://streams.atlassian.com/syndication/types/issue") {
+	    		$issueKey = $entry.object.title.innerText
+	    		continue
+	    	}
+	    	# Count the number of attachments
+	    	if($object.'object-type'.innerText -eq "http://activitystrea.ms/schema/1.0/file") {
+	    		$nbfiles = $nbfiles + 1
+	    	}
+	    }  
+    }
+    
+    # Ignore issue if no key found
+    if((!$issueKey) -or ($issueKey.Trim() -eq "")) {
+    	continue
     }
     
     # Find action that generated activity entry
@@ -90,9 +115,15 @@ ForEach ($entry in $activityStream.feed.entry) {
         "created" {$coef = 5; break}
         "update" {$coef = 1; break}
         "comment" {$coef = 2; break}
+        "started" {$coef = 5; break}
         "reopened" {$coef = 4; break}
         "0/post" {$coef = 3; break}
         default {$coef = 0}
+    }
+    
+    # Add weight according to nb of attachments
+    if ($nbfiles > 0) {
+    	$coef = $coef + 2 * $nbfiles
     }
 
     # Get date of the activity
@@ -129,9 +160,6 @@ ForEach ($issueWithWork in $issuesWithWork) {
     $timeSpentInSec = $issueWithWork.Sum / $totalCoeff * $secondsPerDay
     
     Write-Host "Adding worklog on" $issueWithWork.Item "-" $timeSpentInSec "seconds" "-" $issueWithWork.Date
-    $worklog = AddWorklogToJiraIssue $issueWithWork.Item $timeSpentInSec $issueWithWork.Date
+    #$worklog = AddWorklogToJiraIssue $issueWithWork.Item $timeSpentInSec $issueWithWork.Date
     #RemoveWorklogFromJiraIssue $issueWithWork.Item $worklog.id
 }
-
-
-
