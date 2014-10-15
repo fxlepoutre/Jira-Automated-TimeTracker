@@ -1,7 +1,14 @@
+#############################
+##### ARGUMENTS         #####
+#############################
+
 Param(
   [string]$cred,
-  [string]$date
+  [string]$date,
+  [string]$post
 )
+
+#USAGE: powershell -ExecutionPolicy ByPass -File E:\Victor\Jira-Automated-Time-Tracker.ps1 -cred E:\Victor\pwd_victor.txt -post true
 
 #############################
 ##### GLOBAL PARAMETERS #####
@@ -65,17 +72,21 @@ $passwordDecoded = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([Sy
 $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $username,$passwordDecoded)))
 
 # Read input date and set timestamp based on this.
-if (!$date)
-{
-	$worklogDateInput = Read-Host 'Input date (dd/mm/yy) or leave blank for today'
-	if ($worklogDateInput) {
-		$worklogDate = Get-Date $worklogDateInput
-	}
-}
-else
+if ($date)
 {
 	$worklogDate = Get-Date $date
 }
+else
+{
+	if (!$cred)
+	{
+		$worklogDateInput = Read-Host 'Input date (dd/mm/yy) or leave blank for today'
+		if ($worklogDateInput) {
+			$worklogDate = Get-Date $worklogDateInput
+		}
+	}
+}
+
 
 if(!$worklogDate) {
   $worklogDate = Get-Date
@@ -201,6 +212,9 @@ ForEach ($issueWithWork in $issuesWithWork) {
     	$issueWithWork.TimeSpent = $issueWithWork.TimeSpent + $timeRemaining
     }
     Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
-    $worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
-    #RemoveWorklogFromJiraIssue $issueWithWork.Item $worklog.id
+    if ($post -eq "true") 
+    {
+    	$worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
+    	#RemoveWorklogFromJiraIssue $issueWithWork.Item $worklog.id
+    }
 }
