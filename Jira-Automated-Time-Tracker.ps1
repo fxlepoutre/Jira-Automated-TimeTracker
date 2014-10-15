@@ -4,6 +4,8 @@
 
 $jiraURL = "http://jira.sophieparis.com"
 $secondsPerDay = 8*3600
+$modulo = 600
+$cocu = "ITHD-8454"
 
 
 #############################
@@ -77,26 +79,26 @@ ForEach ($entry in $activityStream.feed.entry) {
     
     # Find issue related to activity entry in target first
     ForEach ($target in $entry.target) {
-    	if($target.'object-type'.innerText -eq "http://streams.atlassian.com/syndication/types/issue") {
+    	if($target.'object-type' -eq "http://streams.atlassian.com/syndication/types/issue") {
     		$issueKey = $entry.target.title.InnerText
     		break
     	}
     }
     
-    # Find issue related to activity entry in object if no target found
-    if((!$issueKey) -or ($issueKey.Trim() -eq "")) {
-	    ForEach ($object in $entry.object) {
-	    	if($object.'object-type'.innerText -eq "http://streams.atlassian.com/syndication/types/issue") {
+    # Looks at the activity object for issues or files
+	  ForEach ($object in $entry.object) { 	
+	    # Find issue in object if no issue found yet
+    	if((!$issueKey) -or ($issueKey.Trim() -eq "")) {
+	    	if($object.'object-type' -eq "http://streams.atlassian.com/syndication/types/issue") {
 	    		$issueKey = $entry.object.title.innerText
-	    		continue
 	    	}
-	    	# Count the number of attachments
-	    	if($object.'object-type'.innerText -eq "http://activitystrea.ms/schema/1.0/file") {
-	    		$nbfiles = $nbfiles + 1
-	    	}
-	    }  
+	    }
+    	# Count the number of attachments
+    	if($object.'object-type' -eq "http://activitystrea.ms/schema/1.0/file") {
+    		$nbfiles = $nbfiles + 1
+    	}
     }
-    
+
     # Ignore issue if no key found
     if((!$issueKey) -or ($issueKey.Trim() -eq "")) {
     	continue
@@ -125,7 +127,7 @@ ForEach ($entry in $activityStream.feed.entry) {
     if ($nbfiles > 0) {
     	$coef = $coef + 2 * $nbfiles
     }
-
+		
     # Get date of the activity
     $datePublished = $entry.published
 
@@ -133,8 +135,8 @@ ForEach ($entry in $activityStream.feed.entry) {
     $activityEntries += [pscustomobject]@{issueKey=$issueKey;coef=$coef;date=$datePublished}
 }
 
-# Always add entry to this worklog.
-$activityEntries += [pscustomobject]@{issueKey="ITHD-8454";coef=1;date=$worklogDate}
+# Always add entry to this "cocu" worklog.
+$activityEntries += [pscustomobject]@{issueKey=$cocu;coef=1;date=$worklogDate}
 
 # Create a new datastore which groups the results by issue, in order to have only one worklog by issue. 
 $issuesWithWork = $activityEntries | Group-Object issueKey | %{
@@ -151,15 +153,27 @@ ForEach ($issueWithWork in $($issuesWithWork)) {
     $issueDetails = GetDetailsOfJiraIssue $issueWithWork.Item
     $issueWithWork.Status = $issueDetails.fields.status.name
 }
+
 # Remove entries that are closed
 $issuesWithWork = $issuesWithWork | where {$_.Status -ne "Closed"}
 
-# Record the worklog depending on the 
+# Allocate time according to coef
 $totalCoeff = ($issuesWithWork | Measure-Object Sum -Sum).Sum
-ForEach ($issueWithWork in $issuesWithWork) {
+$timeRemaining = $secondsPerDay
+$issuesWithWork | Add-Member -NotePropertyName TimeSpent -NotePropertyValue 0
+ForEach ($issueWithWork in $($issuesWithWork)) {
     $timeSpentInSec = $issueWithWork.Sum / $totalCoeff * $secondsPerDay
-    
-    Write-Host "Adding worklog on" $issueWithWork.Item "-" $timeSpentInSec "seconds" "-" $issueWithWork.Date
-    #$worklog = AddWorklogToJiraIssue $issueWithWork.Item $timeSpentInSec $issueWithWork.Date
+    $timeSpentInSec = $timeSpentInSec - ($timeSpentInSec % $modulo)
+    $timeRemaining = $timeRemaining - $timeSpentInSec
+    $issueWithWork.TimeSpent = $timeSpentInSec
+}
+
+# Record the worklog
+ForEach ($issueWithWork in $issuesWithWork) {
+    if ($issueWithWork.Item -eq $cocu) {
+    	$issueWithWork.TimeSpent = $issueWithWork.TimeSpent + $timeRemaining
+    }
+    Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
+    $worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
     #RemoveWorklogFromJiraIssue $issueWithWork.Item $worklog.id
 }
