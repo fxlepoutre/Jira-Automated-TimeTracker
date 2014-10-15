@@ -1,12 +1,16 @@
+Param(
+  [string]$cred,
+  [string]$date
+)
+
 #############################
 ##### GLOBAL PARAMETERS #####
 #############################
 
 $jiraURL = "http://jira.sophieparis.com"
 $secondsPerDay = 8*3600
-$modulo = 600
+$modulo = 1800
 $cocu = "ITHD-8454"
-
 
 #############################
 #####     FUNCTIONS     #####
@@ -40,22 +44,45 @@ Function RemoveWorklogFromJiraIssue ($issueCode, $worklogCode) {
 #############################
 
 # Read credentials.
-$username = Read-Host 'Jira username'
-$password = Read-Host 'Jira password' -AsSecureString
-$passwordDecoded = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
+if (!$cred)
+{
+	$username = Read-Host 'Jira username'
+	$password = Read-Host 'Jira password' -AsSecureString
+	$password | ConvertFrom-SecureString | Out-File ".\pwd_$username.txt"
+}
+else
+{
+	$username = $cred | select-string -pattern ".*pwd_(.*).txt" | %{ $_.Matches[0].Groups[1].Value }
+	if (test-path $cred)
+	{
+		# Read the password from file.
+		$password = Get-Content $cred | ConvertTo-SecureString
+	}
+}	
 
 # Create authentication header.
+$passwordDecoded = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
 $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $username,$passwordDecoded)))
 
 # Read input date and set timestamp based on this.
-$worklogDateInput = Read-Host 'Input date (dd/mm/yy) or leave blank for today'
-if(!$worklogDateInput) {
-    $worklogDate = Get-Date
-    $worklogDateStr = ""+$worklogDate.Day+"/"+$worklogDate.Month+"/"+$worklogDate.Year
-    $worklogDate = Get-Date $worklogDateStr
-} else {
-    $worklogDate = Get-Date $worklogDateInput
+if (!$date)
+{
+	$worklogDateInput = Read-Host 'Input date (dd/mm/yy) or leave blank for today'
+	if ($worklogDateInput) {
+		$worklogDate = Get-Date $worklogDateInput
+	}
 }
+else
+{
+	$worklogDate = Get-Date $date
+}
+
+if(!$worklogDate) {
+  $worklogDate = Get-Date
+  $worklogDateStr = ""+$worklogDate.Day+"/"+$worklogDate.Month+"/"+$worklogDate.Year
+  $worklogDate = Get-Date $worklogDateStr
+}
+
 $dateStart = Get-Date $worklogDate -UFormat %s
 $dateEnd = (Get-Date $worklogDate.AddDays(1) -UFormat %s) - 1
 
