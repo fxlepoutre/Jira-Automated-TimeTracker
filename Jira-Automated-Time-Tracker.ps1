@@ -1,14 +1,8 @@
-#############################
-##### ARGUMENTS         #####
-#############################
-
 Param(
   [string]$cred,
   [string]$date,
   [string]$post
 )
-
-#USAGE: powershell -ExecutionPolicy ByPass -File E:\Victor\Jira-Automated-Time-Tracker.ps1 -cred E:\Victor\pwd_victor.txt -post true
 
 #############################
 ##### GLOBAL PARAMETERS #####
@@ -16,7 +10,7 @@ Param(
 
 $jiraURL = "http://jira.sophieparis.com"
 $secondsPerDay = 8*3600
-$modulo = 1800
+$modulo = 900
 $cocu = "ITHD-8454"
 
 #############################
@@ -100,7 +94,7 @@ $dateEnd = (Get-Date $worklogDate.AddDays(1) -UFormat %s) - 1
 # Try login and read XML feed of activities..
 try {
     # Read XML feed of activities.
-    $uri = $Script:jiraURL+"/activity?streams=user+IS+victor&streams=update-date+BETWEEN+"+$dateStart+"000+"+$dateEnd+"999&maxResults=500"
+    $uri = $Script:jiraURL+"/activity?streams=user+IS+"+$username+"&streams=update-date+BETWEEN+"+$dateStart+"000+"+$dateEnd+"999&maxResults=500"
     write-Host $uri
     [xml]$activityStream = Invoke-WebRequest -Uri $uri -Method Get -SessionVariable session -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -TimeoutSec 10
 } catch [Exception] {
@@ -151,19 +145,20 @@ ForEach ($entry in $activityStream.feed.entry) {
     # Assign coefficient to defined action
     $coef = 0
     switch($action) {
-        "closed" {$coef = 3; break}
+        "closed" {$coef = 2; break}
         "created" {$coef = 5; break}
         "update" {$coef = 1; break}
         "comment" {$coef = 2; break}
         "started" {$coef = 5; break}
         "reopened" {$coef = 4; break}
-        "0/post" {$coef = 3; break}
+        "resolved" {$coef = 5; break}
+        "0/post" {$coef = 2; break}
         default {$coef = 0}
     }
     
     # Add weight according to nb of attachments
     if ($nbfiles > 0) {
-    	$coef = $coef + 2 * $nbfiles
+    	$coef = $coef + 1 * $nbfiles
     }
 		
     # Get date of the activity
@@ -187,9 +182,15 @@ $issuesWithWork = $activityEntries | Group-Object issueKey | %{
 
 # Get current status of items
 $issuesWithWork | Add-Member -NotePropertyName Status -NotePropertyValue "Unknown"
+$issuesWithWork | Add-Member -NotePropertyName Assignee -NotePropertyValue $username
 ForEach ($issueWithWork in $($issuesWithWork)) {
     $issueDetails = GetDetailsOfJiraIssue $issueWithWork.Item
     $issueWithWork.Status = $issueDetails.fields.status.name
+    $issueWithWork.Assignee = $issueDetails.fields.assignee.name
+    if ($issueWithWork.Assignee -eq $username)
+    {
+    	$issueWithWork.Sum = $issueWithWork.Sum + 10
+    }
 }
 
 # Remove entries that are closed
@@ -211,10 +212,13 @@ ForEach ($issueWithWork in $issuesWithWork) {
     if ($issueWithWork.Item -eq $cocu) {
     	$issueWithWork.TimeSpent = $issueWithWork.TimeSpent + $timeRemaining
     }
-    Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
+    Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.Assignee "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
     if ($post -eq "true") 
     {
-    	$worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
+    	if ($issueWithWork.Sum -ne 0)
+    	{
+    		$worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
+    	}
     	#RemoveWorklogFromJiraIssue $issueWithWork.Item $worklog.id
     }
 }
