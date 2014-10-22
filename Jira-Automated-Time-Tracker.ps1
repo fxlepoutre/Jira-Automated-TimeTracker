@@ -4,13 +4,15 @@ Param(
   [string]$post
 )
 
+#USAGE: powershell -ExecutionPolicy ByPass -File E:\Victor\Jira-Automated-Time-Tracker.ps1 -cred E:\Path-to-Credentials-File\pwd_username.txt -date 24/10/14 -post true
+
 #############################
 ##### GLOBAL PARAMETERS #####
 #############################
 
 $jiraURL = "http://jira.sophieparis.com"
 $secondsPerDay = 8*3600
-$modulo = 900
+$modulo = 360
 $cocu = "ITHD-8454"
 
 #############################
@@ -45,35 +47,30 @@ Function RemoveWorklogFromJiraIssue ($issueCode, $worklogCode) {
 #############################
 
 # Read credentials.
-if (!$cred)
-{
+if (!$cred) {
 	$username = Read-Host 'Jira username'
 	$password = Read-Host 'Jira password' -AsSecureString
 	$password | ConvertFrom-SecureString | Out-File ".\pwd_$username.txt"
-}
-else
-{
+} else {
 	$username = $cred | select-string -pattern ".*pwd_(.*).txt" | %{ $_.Matches[0].Groups[1].Value }
-	if (test-path $cred)
-	{
+	if (test-path $cred) {
 		# Read the password from file.
 		$password = Get-Content $cred | ConvertTo-SecureString
-	}
-}	
+	} else {
+        Write-Host "File """ $cred """ not found."
+        Break
+    }
+}
 
 # Create authentication header.
 $passwordDecoded = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
 $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("{0}:{1}" -f $username,$passwordDecoded)))
 
 # Read input date and set timestamp based on this.
-if ($date)
-{
+if ($date) {
 	$worklogDate = Get-Date $date
-}
-else
-{
-	if (!$cred)
-	{
+} else {
+	if (!$cred) {
 		$worklogDateInput = Read-Host 'Input date (dd/mm/yy) or leave blank for today'
 		if ($worklogDateInput) {
 			$worklogDate = Get-Date $worklogDateInput
@@ -81,7 +78,7 @@ else
 	}
 }
 
-
+# If Date not set, default assign it to today.
 if(!$worklogDate) {
   $worklogDate = Get-Date
   $worklogDateStr = ""+$worklogDate.Day+"/"+$worklogDate.Month+"/"+$worklogDate.Year
@@ -95,7 +92,6 @@ $dateEnd = (Get-Date $worklogDate.AddDays(1) -UFormat %s) - 1
 try {
     # Read XML feed of activities.
     $uri = $Script:jiraURL+"/activity?streams=user+IS+"+$username+"&streams=update-date+BETWEEN+"+$dateStart+"000+"+$dateEnd+"999&maxResults=500"
-    write-Host $uri
     [xml]$activityStream = Invoke-WebRequest -Uri $uri -Method Get -SessionVariable session -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -TimeoutSec 10
 } catch [Exception] {
     write-Host "Login error, check if login on Jira is possible."
@@ -108,7 +104,8 @@ $activityEntries = @()
 ForEach ($entry in $activityStream.feed.entry) { 
     # Initialize number of attachments
     $nbfiles = 0
-    
+    $issueKey = ""
+
     # Find issue related to activity entry in target first
     ForEach ($target in $entry.target) {
     	if($target.'object-type' -eq "http://streams.atlassian.com/syndication/types/issue") {
@@ -187,8 +184,7 @@ ForEach ($issueWithWork in $($issuesWithWork)) {
     $issueDetails = GetDetailsOfJiraIssue $issueWithWork.Item
     $issueWithWork.Status = $issueDetails.fields.status.name
     $issueWithWork.Assignee = $issueDetails.fields.assignee.name
-    if ($issueWithWork.Assignee -eq $username)
-    {
+    if ($issueWithWork.Assignee -eq $username) {
     	$issueWithWork.Sum = $issueWithWork.Sum + 10
     }
 }
@@ -213,12 +209,16 @@ ForEach ($issueWithWork in $issuesWithWork) {
     	$issueWithWork.TimeSpent = $issueWithWork.TimeSpent + $timeRemaining
     }
     Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.Assignee "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
-    if ($post -eq "true") 
-    {
-    	if ($issueWithWork.Sum -ne 0)
-    	{
+    if ($post -eq "true") {
+    	if ($issueWithWork.Sum -ne 0) {
     		$worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
     	}
-    	#RemoveWorklogFromJiraIssue $issueWithWork.Item $worklog.id
     }
+}
+
+# Confirm saving.
+if ($post -eq "true") {
+    Write-Host "Done, changes saved to Jira."
+} else {
+    Write-Host "Changes not saved. Launch again with parameter ""-post true"" to save."
 }
