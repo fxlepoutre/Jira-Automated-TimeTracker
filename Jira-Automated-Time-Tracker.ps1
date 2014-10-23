@@ -4,7 +4,7 @@ Param(
   [string]$post
 )
 
-#USAGE: powershell -ExecutionPolicy ByPass -File E:\Victor\Jira-Automated-Time-Tracker.ps1 -cred E:\Path-to-Credentials-File\pwd_username.txt -date 24/10/14 -post true
+#USAGE: powershell -ExecutionPolicy ByPass -File Jira-Automated-Time-Tracker.ps1 -cred E:\Path-to-Credentials-File\pwd_username.txt -date 24/10/14 -post true
 
 #############################
 ##### GLOBAL PARAMETERS #####
@@ -118,8 +118,13 @@ ForEach ($entry in $activityStream.feed.entry) {
 	  ForEach ($object in $entry.object) { 	
 	    # Find issue in object if no issue found yet
     	if((!$issueKey) -or ($issueKey.Trim() -eq "")) {
-	    	if($object.'object-type' -eq "http://streams.atlassian.com/syndication/types/issue") {
-	    		$issueKey = $entry.object.title.innerText
+	    	if(($object.'object-type' -eq "http://streams.atlassian.com/syndication/types/issue")) {
+	    		# Check if entry is only a worklog entry. If so, don't include it.
+                $excludedStringInAction = "Logged"
+                $concat = " " + $entry.title.innerText + $entry.content.innerText
+                if(-not($concat.ToLower() -match $excludedStringInAction)) {
+                    $issueKey = $entry.object.title.innerText
+                }
 	    	}
 	    }
     	# Count the number of attachments
