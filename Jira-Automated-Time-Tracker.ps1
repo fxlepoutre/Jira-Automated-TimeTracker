@@ -1,7 +1,8 @@
 Param(
   [string]$cred,
   [string]$date,
-  [string]$post
+  [string]$post,
+  [string]$debug
 )
 
 #USAGE: powershell -ExecutionPolicy ByPass -File Jira-Automated-Time-Tracker.ps1 -cred E:\Path-to-Credentials-File\pwd_username.txt -date 24/10/14 -post true
@@ -14,6 +15,7 @@ $jiraURL = "http://jira.sophieparis.com"
 $secondsPerDay = 8*3600
 $modulo = 360
 $cocu = "ITHD-8454"
+$coefcocumax = 12
 
 #############################
 #####     FUNCTIONS     #####
@@ -40,6 +42,18 @@ Function AddWorklogToJiraIssue ($issueCode, $timeSpentSeconds, $dateWork) {
 Function RemoveWorklogFromJiraIssue ($issueCode, $worklogCode) {
     $uri = $Script:jiraURL+"/rest/api/2/issue/"+$issueCode+"/worklog/"+$worklogCode+"?adjustEstimate=new&newEstimate=0"
     Invoke-RestMethod -ContentType "application/json" -Method Delete -Uri $uri -TimeoutSec 5 -WebSession $Script:session
+}
+
+# Writes debug data to main screen
+Function Debug($object, $title) {
+    if ($debug -eq "true") {
+        Write-Host "===================================================================="
+        Write-Host "=== Debug data ===" $title
+        Write-Host "===================================================================="
+        $object | Format-Table -AutoSize
+        Write-Host "===================================================================="
+        Write-Host " "
+    }
 }
 
 #############################
@@ -162,16 +176,19 @@ ForEach ($entry in $activityStream.feed.entry) {
     if ($nbfiles > 0) {
     	$coef = $coef + 1 * $nbfiles
     }
-		
+	
     # Get date of the activity
     $datePublished = $entry.published
 
     # Load all results into the datastore of activity entries.
-    $activityEntries += [pscustomobject]@{issueKey=$issueKey;coef=$coef;date=$datePublished}
+    $activityEntries += [pscustomobject]@{issueKey=$issueKey;action=$action;coef=$coef;date=$datePublished}
 }
 
 # Always add entry to this "cocu" worklog.
-$activityEntries += [pscustomobject]@{issueKey=$cocu;coef=1;date=$worklogDate}
+$coefcocu = [math]::Max(($coefcocumax - ($activityEntries | Measure-Object coef -Sum).Sum), 1)
+$activityEntries += [pscustomobject]@{issueKey=$cocu;action="misc. work";coef=$coefcocu;date=$worklogDate}
+
+Debug $activityEntries "All activity entries"
 
 # Create a new datastore which groups the results by issue, in order to have only one worklog by issue. 
 $issuesWithWork = $activityEntries | Group-Object issueKey | %{
@@ -194,6 +211,8 @@ ForEach ($issueWithWork in $($issuesWithWork)) {
     }
 }
 
+Debug $issuesWithWork "All issues with work"
+
 # Remove entries that are closed
 $issuesWithWork = $issuesWithWork | where {$_.Status -ne "Closed"}
 
@@ -208,13 +227,15 @@ ForEach ($issueWithWork in $($issuesWithWork)) {
     $issueWithWork.TimeSpent = $timeSpentInSec
 }
 
+Debug $issuesWithWork "All issues to be updated"
+
 # Record the worklog
 ForEach ($issueWithWork in $issuesWithWork) {
     if ($issueWithWork.Item -eq $cocu) {
     	$issueWithWork.TimeSpent = $issueWithWork.TimeSpent + $timeRemaining
     }
     Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.Assignee "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
-    if ($post -eq "true") {
+    if (($post -eq "true") -and ($debug -ne "true")) {
     	if ($issueWithWork.Sum -ne 0) {
     		$worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
     	}
@@ -222,8 +243,8 @@ ForEach ($issueWithWork in $issuesWithWork) {
 }
 
 # Confirm saving.
-if ($post -eq "true") {
+if (($post -eq "true") -and ($debug -ne "true")) {
     Write-Host "Done, changes saved to Jira."
 } else {
-    Write-Host "Changes not saved. Launch again with parameter ""-post true"" to save."
+    Write-Host "Changes not saved. Launch again with parameter ""-post true"" to save (or remove debug switch)."
 }
