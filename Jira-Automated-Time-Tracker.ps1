@@ -185,7 +185,7 @@ ForEach ($entry in $activityStream.feed.entry) {
 }
 
 # Always add entry to this "cocu" worklog.
-$coefcocu = [math]::Max(($coefcocumax - ($activityEntries | Measure-Object coef -Sum).Sum), 1)
+$coefcocu = [math]::Max(($coefcocumax - ($activityEntries | Measure-Object coef -Sum).Sum), 0)
 $activityEntries += [pscustomobject]@{issueKey=$cocu;action="misc. work";coef=$coefcocu;date=$worklogDate}
 
 Debug $activityEntries "All activity entries"
