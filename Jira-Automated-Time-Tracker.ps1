@@ -234,9 +234,9 @@ ForEach ($issueWithWork in $issuesWithWork) {
     if ($issueWithWork.Item -eq $cocu) {
     	$issueWithWork.TimeSpent = $issueWithWork.TimeSpent + $timeRemaining
     }
-    Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.Assignee "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
-    if (($post -eq "true") -and ($debug -ne "true")) {
-    	if ($issueWithWork.Sum -ne 0) {
+    if ($issueWithWork.TimeSpent -ne 0) {
+        Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.Assignee "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
+        if (($post -eq "true") -and ($debug -ne "true")) {
     		$worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
     	}
     }
