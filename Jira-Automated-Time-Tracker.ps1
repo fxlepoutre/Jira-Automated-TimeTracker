@@ -85,26 +85,19 @@ if ($date) {
 	$worklogDate = Get-Date $date
 } else {
 	if (!$cred) {
-		$worklogDateInput = Read-Host 'Input date (dd/mm/yy) or leave blank for today'
+		$worklogDateInput = Read-Host 'Input date (dd/mm/yy) or leave blank for yesterday'
 		if ($worklogDateInput) {
 			$worklogDate = Get-Date $worklogDateInput
 		}
-        else
-                {
-          # If blank, default assign it to today.
-          $worklogDate = Get-Date
-        }
 	}
 }
 
 # If Date not set, default assign it to yesterday.
 if(!$worklogDate) {
-  $worklogDate = Get-Date
-  $worklogDate = $worklogDate.AddDays(-1)
+  $worklogDate = (Get-Date).AddDays(-1)
+  $worklogDateStr = ""+$worklogDate.Day+"/"+$worklogDate.Month+"/"+$worklogDate.Year
+  $worklogDate = Get-Date $worklogDateStr
 }
-
-$worklogDateStr = ""+$worklogDate.Day+"/"+$worklogDate.Month+"/"+$worklogDate.Year
-$worklogDate = Get-Date $worklogDateStr
 
 $dateStart = Get-Date $worklogDate -UFormat %s
 $dateEnd = (Get-Date $worklogDate.AddDays(1) -UFormat %s) - 1
@@ -113,7 +106,6 @@ $dateEnd = (Get-Date $worklogDate.AddDays(1) -UFormat %s) - 1
 try {
     # Read XML feed of activities.
     $uri = $Script:jiraURL+"/activity?streams=user+IS+"+$username+"&streams=update-date+BETWEEN+"+$dateStart+"000+"+$dateEnd+"999&maxResults=500"
-    Write-Host $uri
     [xml]$activityStream = Invoke-WebRequest -Uri $uri -Method Get -SessionVariable session -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)} -TimeoutSec 10
 } catch [Exception] {
     write-Host "Login error, check if login on Jira is possible."
@@ -193,8 +185,8 @@ ForEach ($entry in $activityStream.feed.entry) {
 }
 
 # Always add entry to this "cocu" worklog.
-$coefcocu = [math]::Max(($coefcocumax - ($activityEntries | Measure-Object coef -Sum).Sum), 1)
-$activityEntries += [pscustomobject]@{issueKey=$cocu;action="misc. work";coef=$coefcocu;date=$worklogDate}
+#$coefcocu = [math]::Max(($coefcocumax - ($activityEntries | Measure-Object coef -Sum).Sum), 0)
+#$activityEntries += [pscustomobject]@{issueKey=$cocu;action="misc. work";coef=$coefcocu;date=$worklogDate}
 
 Debug $activityEntries "All activity entries"
 
@@ -219,10 +211,15 @@ ForEach ($issueWithWork in $($issuesWithWork)) {
     }
 }
 
-Debug $issuesWithWork "All issues with work"
-
 # Remove entries that are closed
 $issuesWithWork = $issuesWithWork | where {$_.Status -ne "Closed"}
+
+# Add entry to this "cocu" worklog if needed.
+$coefcocu = [math]::Max(($coefcocumax - ($issuesWithWork | Measure-Object -Property Sum -Sum).Sum), 0)
+$issuesWithWork = @($issuesWithWork)
+$issuesWithWork += [pscustomobject]@{Date=$worklogDate;Item=$cocu;Status="Unknown";Sum=$coefcocu}
+
+Debug $issuesWithWork "All issues with work (and cocu issue if applicable)"
 
 # Allocate time according to coef
 $totalCoeff = ($issuesWithWork | Measure-Object Sum -Sum).Sum
@@ -242,9 +239,9 @@ ForEach ($issueWithWork in $issuesWithWork) {
     if ($issueWithWork.Item -eq $cocu) {
     	$issueWithWork.TimeSpent = $issueWithWork.TimeSpent + $timeRemaining
     }
-    Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.Assignee "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
-    if (($post -eq "true") -and ($debug -ne "true")) {
-    	if ($issueWithWork.Sum -ne 0) {
+    if ($issueWithWork.TimeSpent -ne 0) {
+        Write-Host "Adding worklog on" $issueWithWork.Item "-" $issueWithWork.Assignee "-" $issueWithWork.TimeSpent "seconds" "-" $issueWithWork.Date
+        if (($post -eq "true") -and ($debug -ne "true")) {
     		$worklog = AddWorklogToJiraIssue $issueWithWork.Item $issueWithWork.TimeSpent $issueWithWork.Date
     	}
     }
